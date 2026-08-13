@@ -1,0 +1,138 @@
+{
+  "app": {
+    "name": "xaut-paper-bot",
+    "tick_interval": "5s",
+    "account_refresh": "10s",
+    "http_address": ":8080",
+    "data_directory": "data",
+    "observe_only": true,
+    "flatten_on_hard_halt": true,
+    "cancel_on_shutdown": true
+  },
+  "bitfinex": {
+    "api_key_env": "BITFINEX_API_KEY",
+    "api_secret_env": "BITFINEX_API_SECRET",
+    "paper_ack_env": "BFX_PAPER_TRADING_ACK",
+    "paper_ack_value": "I_UNDERSTAND_PAPER_ONLY",
+    "reconnect_every": "3s",
+    "reconnect_tries": 100,
+    "heartbeat_timeout": "20s",
+    "ust_haircut": 0.995,
+    "public_api_base": "https://api-pub.bitfinex.com/v2"
+  },
+  "symbols": {
+    "order_pair": "tTESTXAUT:TESTUSD",
+    "xaut_usd": "tXAUT:USD",
+    "xaut_ust": "tXAUT:UST",
+    "ust_usd": "tUSTUSD",
+    "xaut_btc": "tXAUT:BTC",
+    "btc_usd": "tBTCUSD",
+    "xaut_funding": "fXAUT"
+  },
+  "market": {
+    "book_depth_bps": 10,
+    "maximum_book_age": "15s",
+    "maximum_trade_age": "30s",
+    "maximum_direct_spread_bps": 20,
+    "maximum_route_dispersion_bps": 35,
+    "fair_value_model_buffer_bps": 3,
+    "warmup_samples": 80,
+    "basis_window": 240,
+    "micro_depth_levels": 5,
+    "trade_flow_lookback": "60s",
+    "transition_vol_ratio": 1.6,
+    "transition_trend_acceleration": 0.3,
+    "transition_basis_instability": 0.75,
+    "high_volatility_fraction": 0.012,
+    "trend_15m_weight": 0.2,
+    "trend_1h_weight": 0.35,
+    "trend_4h_weight": 0.45
+  },
+  "strategy": {
+    "range_weights": {
+      "trend": 0.15,
+      "basis": 0.7,
+      "micro": 0.15
+    },
+    "trend_weights": {
+      "trend": 0.65,
+      "basis": 0.2,
+      "micro": 0.15
+    },
+    "dislocation_weights": {
+      "trend": 0.1,
+      "basis": 0.8,
+      "micro": 0.1
+    },
+    "trend_regime_threshold": 0.45,
+    "dislocation_z_threshold": 2.1,
+    "mean_reversion_trend_veto": 0.32,
+    "long_entry_threshold": 0.38,
+    "short_entry_threshold": 0.48,
+    "trend_exit_threshold": 0.15,
+    "mean_reversion_exit_z": 0.55,
+    "long_normal_cap": 0.8,
+    "short_normal_cap": 0.6,
+    "high_confidence_short_cap": 0.8,
+    "high_confidence_threshold": 0.9,
+    "minimum_confidence": 0.4,
+    "minimum_expected_edge_bps": 8,
+    "short_extra_buffer_bps": 4,
+    "thesis_reset_basis_z": 1.0,
+    "thesis_reset_trend": 0.2,
+    "reentry_cooldown": "20m"
+  },
+  "risk": {
+    "capital_base_usd": 30000,
+    "risk_per_trade_fraction": 0.002,
+    "maximum_open_risk_fraction": 0.005,
+    "absolute_gross_exposure": 1.0,
+    "minimum_stop_fraction": 0.0035,
+    "volatility_stop_multiplier": 1.75,
+    "daily_soft_loss_1_usd": 100,
+    "daily_soft_loss_1_throttle": 0.75,
+    "daily_soft_loss_2_usd": 150,
+    "daily_soft_loss_2_throttle": 0.5,
+    "daily_hard_loss_usd": 225,
+    "weekly_hard_loss_usd": 600,
+    "maximum_drawdown_usd": 1500,
+    "maximum_consecutive_losses": 3,
+    "liquidity_participation": 0.05,
+    "minimum_order_notional_usd": 25,
+    "account_maximum_age": "30s",
+    "trailing_activation_r": 1.5,
+    "trailing_distance_r": 1.0,
+    "maximum_holding_time": "72h",
+    "halt_file": "HALT"
+  },
+  "execution": {
+    "group_id": 883301,
+    "stop_group_id": 883302,
+    "minimum_xaut_quantity": 0.002,
+    "quantity_step": 0.0001,
+    "price_step": 0.1,
+    "target_tolerance_xaut": 0.001,
+    "maximum_child_notional_usd": 5000,
+    "depth_participation": 0.05,
+    "recent_volume_participation": 0.1,
+    "maximum_order_age": "45s",
+    "minimum_submit_interval": "5s",
+    "urgent_slippage_bps": 8,
+    "protective_stops": true
+  },
+  "funding": {
+    "fallback_daily_rate": 0.0003,
+    "expected_holding_hours": 8,
+    "maximum_edge_share": 0.2,
+    "maximum_age": "10m",
+    "lookback": "6h"
+  },
+  "gold": {
+    "enabled": false,
+    "url": "",
+    "price_json_field": "price",
+    "maximum_age": "2m",
+    "basis_ewma_alpha": 0.02,
+    "maximum_deviation_bps": 100
+  }
+}

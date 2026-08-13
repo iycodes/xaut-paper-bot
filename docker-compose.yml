@@ -1,0 +1,11 @@
+services:
+  xaut-paper-bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./configs/config.json:/app/configs/config.json:ro
+      - ./data:/app/data
+    ports:
+      - "127.0.0.1:8080:8080"

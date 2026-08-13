@@ -1,0 +1,41 @@
+package config
+
+import "testing"
+
+func TestDefaultValid(t *testing.T) {
+	cfg := Default()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config invalid: %v", err)
+	}
+	if cfg.Risk.CapitalBaseUSD != 30_000 {
+		t.Fatalf("capital = %v", cfg.Risk.CapitalBaseUSD)
+	}
+	if cfg.Risk.AbsoluteGrossExposure != 1 {
+		t.Fatalf("gross cap = %v", cfg.Risk.AbsoluteGrossExposure)
+	}
+}
+
+func TestRejectsGrossExposureAboveOne(t *testing.T) {
+	cfg := Default()
+	cfg.Risk.AbsoluteGrossExposure = 1.01
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestDefaultSeparatesPaperExecutionFromLiveSignalBooks(t *testing.T) {
+	cfg := Default()
+	if cfg.Symbols.OrderPair != "tTESTXAUT:TESTUSD" {
+		t.Fatalf("paper order pair = %q", cfg.Symbols.OrderPair)
+	}
+	if cfg.Symbols.XAUTUSD != "tXAUT:USD" {
+		t.Fatalf("signal pair = %q", cfg.Symbols.XAUTUSD)
+	}
+	seen := map[string]bool{}
+	for _, symbol := range cfg.Symbols.All() {
+		seen[symbol] = true
+	}
+	if !seen[cfg.Symbols.OrderPair] || !seen[cfg.Symbols.XAUTUSD] {
+		t.Fatalf("symbol subscriptions omit execution or signal book: %#v", cfg.Symbols.All())
+	}
+}
