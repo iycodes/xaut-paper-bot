@@ -94,6 +94,31 @@ curl http://127.0.0.1:8082/readyz
 
 Create the configured `HALT` file to block new trading and invoke configured hard-halt behavior.
 
+## Supervisor on Linux
+
+Build the binary before starting Supervisor:
+
+```bash
+mkdir -p bin
+go mod tidy
+go test ./...
+go build -trimpath -o bin/xautbot ./cmd/xautbot
+chmod +x scripts/run-xautbot.sh
+```
+
+The standalone `supervisord.conf` uses paths relative to its own location and
+loads `.env` through `scripts/run-xautbot.sh` when that file exists.
+
+```bash
+supervisord -c "$PWD/supervisord.conf"
+supervisorctl -c "$PWD/supervisord.conf" status
+supervisorctl -c "$PWD/supervisord.conf" restart xaut-paper-bot
+supervisorctl -c "$PWD/supervisord.conf" stop xaut-paper-bot
+```
+
+Runtime output is written to `xautbot.log`. Supervisor's own log, PID and
+control socket are also kept in the project directory.
+
 ## Package layout
 
 ```text
