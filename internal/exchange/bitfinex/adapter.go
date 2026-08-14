@@ -680,13 +680,13 @@ func buildBookSnapshot(symbol string, bids, asks []book.Book, depthBPS float64, 
 		if i >= 10 {
 			break
 		}
-		snap.Bids = append(snap.Bids, domain.BookLevel{Price: level.Price, Quantity: math.Abs(level.Amount)})
+		snap.Bids = append(snap.Bids, domain.BookLevel{Price: level.Price, Amount: math.Abs(level.Amount)})
 	}
 	for i, level := range asks {
 		if i >= 10 {
 			break
 		}
-		snap.Asks = append(snap.Asks, domain.BookLevel{Price: level.Price, Quantity: math.Abs(level.Amount)})
+		snap.Asks = append(snap.Asks, domain.BookLevel{Price: level.Price, Amount: math.Abs(level.Amount)})
 	}
 	return snap
 }

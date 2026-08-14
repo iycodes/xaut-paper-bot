@@ -87,9 +87,9 @@ To enable **Bitfinex paper-account orders only**, add paper-account API credenti
 ## HTTP monitoring
 
 ```bash
-curl http://127.0.0.1:8080/status
-curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/readyz
+curl http://127.0.0.1:8082/status
+curl http://127.0.0.1:8082/healthz
+curl http://127.0.0.1:8082/readyz
 ```
 
 Create the configured `HALT` file to block new trading and invoke configured hard-halt behavior.

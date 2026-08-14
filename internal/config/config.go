@@ -187,7 +187,7 @@ type GoldConfig struct {
 
 func Default() Config {
 	return Config{
-		App:       AppConfig{Name: "xaut-paper-bot", TickInterval: Duration{5 * time.Second}, AccountRefresh: Duration{10 * time.Second}, HTTPAddress: ":8080", DataDirectory: "data", ObserveOnly: true, FlattenOnHardHalt: true, CancelOnShutdown: true},
+		App:       AppConfig{Name: "xaut-paper-bot", TickInterval: Duration{5 * time.Second}, AccountRefresh: Duration{10 * time.Second}, HTTPAddress: ":8082", DataDirectory: "data", ObserveOnly: true, FlattenOnHardHalt: true, CancelOnShutdown: true},
 		Bitfinex:  BitfinexConfig{APIKeyEnv: "BITFINEX_API_KEY", APISecretEnv: "BITFINEX_API_SECRET", PaperAckEnv: "BFX_PAPER_TRADING_ACK", PaperAckValue: "I_UNDERSTAND_PAPER_ONLY", ReconnectEvery: Duration{3 * time.Second}, ReconnectTries: 100, HeartbeatTimeout: Duration{20 * time.Second}, USTHaircut: .995, PublicAPIBase: "https://api-pub.bitfinex.com/v2"},
 		Symbols:   SymbolConfig{OrderPair: "tTESTXAUT:TESTUSD", XAUTUSD: "tXAUT:USD", XAUTUST: "tXAUT:UST", USTUSD: "tUSTUSD", XAUTBTC: "tXAUT:BTC", BTCUSD: "tBTCUSD", XAUTFunding: "fXAUT"},
 		Market:    MarketConfig{BookDepthBPS: 10, MaximumBookAge: Duration{15 * time.Second}, MaximumTradeAge: Duration{30 * time.Second}, MaximumDirectSpreadBPS: 20, MaximumRouteDispersionBPS: 35, FairValueModelBufferBPS: 3, WarmupSamples: 80, BasisWindow: 240, MicroDepthLevels: 5, TradeFlowLookback: Duration{60 * time.Second}, TransitionVolRatio: 1.6, TransitionTrendAcceleration: .30, TransitionBasisInstability: .75, HighVolatilityFraction: .012, Trend15mWeight: .20, Trend1hWeight: .35, Trend4hWeight: .45},

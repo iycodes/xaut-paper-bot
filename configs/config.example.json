@@ -3,7 +3,7 @@
     "name": "xaut-paper-bot",
     "tick_interval": "5s",
     "account_refresh": "10s",
-    "http_address": ":8080",
+    "http_address": ":8082",
     "data_directory": "data",
     "observe_only": true,
     "flatten_on_hard_halt": true,

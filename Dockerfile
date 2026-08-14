@@ -11,7 +11,7 @@ WORKDIR /app
 COPY --from=build /out/xautbot /app/xautbot
 COPY configs/config.json /app/configs/config.json
 VOLUME ["/app/data"]
-EXPOSE 8080
+EXPOSE 8082
 USER nonroot:nonroot
 ENTRYPOINT ["/app/xautbot"]
 CMD ["-config", "/app/configs/config.json"]
