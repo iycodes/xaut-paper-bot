@@ -64,6 +64,13 @@ the bot restores recent samples and uses aligned closed 1-minute candles from
 both synthetic routes as a fallback. Candle-derived basis is initialization
 only; order approval always requires fresh executable WebSocket books.
 
+Public trade history is cached independently of the 5-second engine tick.
+Market trades refresh every 10 seconds and XAUT funding every minute, producing
+about seven requests per minute to Bitfinex's shared trade-history endpoint.
+Rate-limit responses pause both streams and retry with exponential backoff up
+to five minutes. Configure the cadence with `market.public_trades_refresh` and
+`funding.refresh_interval`.
+
 ## Bitfinex markets
 
 The default configuration uses live public XAUT markets to generate signals and Bitfinex's paper symbol for execution:

@@ -47,3 +47,16 @@ func TestRejectsBasisWarmupLargerThanWindow(t *testing.T) {
 		t.Fatal("expected basis window validation error")
 	}
 }
+
+func TestRejectsNonPositiveRESTRefreshIntervals(t *testing.T) {
+	cfg := Default()
+	cfg.Market.PublicTradesRefresh.Duration = 0
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected public trade refresh validation error")
+	}
+	cfg = Default()
+	cfg.Funding.RefreshInterval.Duration = 0
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected funding refresh validation error")
+	}
+}

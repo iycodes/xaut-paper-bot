@@ -40,6 +40,7 @@
     "basis_window": 240,
     "micro_depth_levels": 5,
     "trade_flow_lookback": "60s",
+    "public_trades_refresh": "10s",
     "transition_vol_ratio": 1.6,
     "transition_trend_acceleration": 0.3,
     "transition_basis_instability": 0.75,
@@ -125,7 +126,8 @@
     "expected_holding_hours": 8,
     "maximum_edge_share": 0.2,
     "maximum_age": "10m",
-    "lookback": "6h"
+    "lookback": "6h",
+    "refresh_interval": "1m"
   },
   "gold": {
     "enabled": false,

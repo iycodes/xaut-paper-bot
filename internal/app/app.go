@@ -42,6 +42,7 @@ type App struct {
 	position    *position.Tracker
 	planner     *execution.Planner
 	performance *performance.Ledger
+	publicData  publicDataPoller
 
 	startedAt      time.Time
 	account        domain.AccountSnapshot
@@ -50,6 +51,11 @@ type App struct {
 	lastExitReason string
 	basisStatePath string
 	basisPersisted time.Time
+	marketTrades   []domain.PublicTrade
+	marketPoll     pollSchedule
+	funding        domain.FundingSnapshot
+	fundingPoll    pollSchedule
+	publicBlocked  time.Time
 	mu             sync.Mutex
 }
 
@@ -76,6 +82,7 @@ func New(cfg config.Config, ex exchange.Client, j *journal.Journal, store *monit
 		planner: execution.New(cfg.Execution, cfg.Symbols), performance: ledger,
 		startedAt:      time.Now().UTC(),
 		basisStatePath: filepath.Join(cfg.App.DataDirectory, "basis_state.json"),
+		publicData:     ex,
 	}, nil
 }
 
@@ -280,11 +287,7 @@ func (a *App) tick(ctx context.Context) error {
 	executionDirect := books[a.cfg.Symbols.OrderPair]
 	fair := a.fair.Estimate(books, domain.GoldReference{}, now)
 
-	trades, tradeErr := a.exchange.PublicTrades(ctx, a.cfg.Symbols.XAUTUSD, now.Add(-a.cfg.Market.TradeFlowLookback.Duration), 1000)
-	if tradeErr != nil {
-		a.log.Warn("public trades unavailable; micro flow degraded", "error", tradeErr)
-		trades = nil
-	}
+	trades := a.tradesForTick(ctx, now)
 	feat := a.features.Update(now, modelDirect, fair, trades)
 	if latest := a.features.LatestBasisTime(); latest.After(a.basisPersisted) {
 		if err := a.persistBasis(); err != nil {
@@ -292,10 +295,7 @@ func (a *App) tick(ctx context.Context) error {
 		}
 	}
 
-	funding, fundingErr := a.exchange.Funding(ctx)
-	if fundingErr != nil {
-		funding = domain.FundingSnapshot{Symbol: a.cfg.Symbols.XAUTFunding, Valid: false, UpdatedAt: now, Reason: fundingErr.Error()}
-	}
+	funding := a.fundingForTick(ctx, now)
 
 	if a.accountAt.IsZero() || now.Sub(a.accountAt) >= a.cfg.App.AccountRefresh.Duration {
 		account, accountErr := a.exchange.Account(ctx, fair.Price)

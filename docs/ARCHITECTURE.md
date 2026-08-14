@@ -144,3 +144,9 @@ when its cached account snapshot is stale.
 ## Concurrency model
 
 The SDK manages network activity in the background. The application performs all strategy, risk and execution decisions from one timed orchestration loop. Shared exchange caches and monitoring status use narrow mutex or atomic protection; order submission is serialized to avoid nonce and account-state races.
+
+Public trade and funding history use separate cached refresh schedules rather
+than running on every engine tick. A rate-limit response applies a shared pause
+to both trade-history streams, followed by bounded exponential backoff. This
+keeps WebSocket-driven book processing responsive without exhausting REST
+capacity.
