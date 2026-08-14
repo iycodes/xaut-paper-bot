@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +48,8 @@ type App struct {
 	accountAt      time.Time
 	lastSubmit     time.Time
 	lastExitReason string
+	basisStatePath string
+	basisPersisted time.Time
 	mu             sync.Mutex
 }
 
@@ -70,7 +74,8 @@ func New(cfg config.Config, ex exchange.Client, j *journal.Journal, store *monit
 		strategy: strategy.New(cfg.Strategy, cfg.Funding),
 		risk:     riskManager, position: positionTracker,
 		planner: execution.New(cfg.Execution, cfg.Symbols), performance: ledger,
-		startedAt: time.Now().UTC(),
+		startedAt:      time.Now().UTC(),
+		basisStatePath: filepath.Join(cfg.App.DataDirectory, "basis_state.json"),
 	}, nil
 }
 
@@ -80,6 +85,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	defer a.exchange.Close()
 	a.seedTimeframes(ctx)
+	a.seedBasis(ctx)
 	if err := a.tick(ctx); err != nil {
 		a.log.Warn("initial engine tick failed", "error", err)
 	}
@@ -103,14 +109,164 @@ func (a *App) Run(ctx context.Context) error {
 }
 
 func (a *App) seedTimeframes(ctx context.Context) {
-	for _, tf := range []string{"15m", "1h", "4h"} {
-		candles, err := a.exchange.Candles(ctx, a.cfg.Symbols.XAUTUSD, tf, 180)
+	for _, item := range []struct {
+		name string
+		dur  time.Duration
+	}{{"15m", 15 * time.Minute}, {"1h", time.Hour}, {"4h", 4 * time.Hour}} {
+		candles, err := a.exchange.Candles(ctx, a.cfg.Symbols.XAUTUSD, item.name, 180)
 		if err != nil {
-			a.log.Warn("seed candles failed", "timeframe", tf, "error", err)
+			a.log.Warn("seed candles failed", "timeframe", item.name, "error", err)
 			continue
 		}
-		a.features.Seed(tf, candles)
+		closedBefore := time.Now().UTC().Truncate(item.dur)
+		closed := candles[:0]
+		for _, candle := range candles {
+			if candle.Time.Before(closedBefore) {
+				closed = append(closed, candle)
+			}
+		}
+		a.features.Seed(item.name, closed)
 	}
+}
+
+func (a *App) seedBasis(ctx context.Context) {
+	now := time.Now().UTC()
+	persisted, err := features.LoadBasisState(a.basisStatePath)
+	if err != nil {
+		a.log.Warn("restore basis state failed; trying REST backfill", "error", err)
+		persisted = nil
+	}
+
+	combined := make(map[time.Time]features.BasisSample, a.cfg.Market.BasisWindow)
+	mergeBasisSamples(combined, persisted)
+	latest := latestBasisSample(persisted)
+	needsBackfill := len(persisted) < a.cfg.Market.WarmupSamples || latest.IsZero() || now.Sub(latest) > 2*time.Minute
+	backfilled := 0
+	if needsBackfill {
+		historical, backfillErr := a.backfillBasis(ctx, now)
+		if backfillErr != nil {
+			a.log.Warn("REST basis backfill failed; live warmup will continue", "error", backfillErr)
+		} else {
+			backfilled = len(historical)
+			mergeBasisSamples(combined, historical)
+			// Persisted live-book samples are more exact than candle approximations.
+			mergeBasisSamples(combined, persisted)
+		}
+	}
+
+	samples := make([]features.BasisSample, 0, len(combined))
+	for _, sample := range combined {
+		samples = append(samples, sample)
+	}
+	seeded := a.features.SeedBasis(samples, now)
+	if seeded > 0 {
+		if err := a.persistBasis(); err != nil {
+			a.log.Warn("persist seeded basis state", "error", err)
+		}
+	}
+	a.log.Info("basis initialization complete", "restored", len(persisted), "rest_backfilled", backfilled, "usable_samples", seeded, "warmup_required", a.cfg.Market.WarmupSamples)
+}
+
+func (a *App) backfillBasis(ctx context.Context, now time.Time) ([]features.BasisSample, error) {
+	symbols := []string{a.cfg.Symbols.XAUTUSD, a.cfg.Symbols.XAUTUST, a.cfg.Symbols.USTUSD, a.cfg.Symbols.XAUTBTC, a.cfg.Symbols.BTCUSD}
+	limit := a.cfg.Market.BasisWindow + 5
+	if limit > 1000 {
+		limit = 1000
+	}
+	candles := make(map[string][]domain.Candle, len(symbols))
+	for _, symbol := range symbols {
+		rows, err := a.exchange.Candles(ctx, symbol, "1m", limit)
+		if err != nil {
+			return nil, fmt.Errorf("fetch 1m candles for %s: %w", symbol, err)
+		}
+		candles[symbol] = rows
+	}
+	samples := historicalBasisSamples(a.cfg.Symbols, a.cfg.Market, candles, now)
+	if len(samples) == 0 {
+		return nil, errors.New("no aligned closed 1m candles across both fair-value routes")
+	}
+	return samples, nil
+}
+
+func historicalBasisSamples(symbols config.SymbolConfig, market config.MarketConfig, candles map[string][]domain.Candle, now time.Time) []features.BasisSample {
+	currentMinute := now.UTC().Truncate(time.Minute)
+	oldest := currentMinute.Add(-time.Duration(market.BasisWindow) * time.Minute)
+	closes := make(map[string]map[time.Time]float64, len(candles))
+	for symbol, rows := range candles {
+		byMinute := make(map[time.Time]float64, len(rows))
+		for _, candle := range rows {
+			at := candle.Time.UTC().Truncate(time.Minute)
+			if candle.Close <= 0 || at.Before(oldest) || !at.Before(currentMinute) {
+				continue
+			}
+			byMinute[at] = candle.Close
+		}
+		closes[symbol] = byMinute
+	}
+
+	out := make([]features.BasisSample, 0, market.BasisWindow)
+	for at, direct := range closes[symbols.XAUTUSD] {
+		xautUST, ok1 := closes[symbols.XAUTUST][at]
+		ustUSD, ok2 := closes[symbols.USTUSD][at]
+		xautBTC, ok3 := closes[symbols.XAUTBTC][at]
+		btcUSD, ok4 := closes[symbols.BTCUSD][at]
+		if !ok1 || !ok2 || !ok3 || !ok4 {
+			continue
+		}
+		routeUST := xautUST * ustUSD
+		routeBTC := xautBTC * btcUSD
+		fair := (routeUST + routeBTC) / 2
+		if fair <= 0 {
+			continue
+		}
+		dispersionBPS := math.Abs(routeUST-routeBTC) / fair * 10_000
+		if dispersionBPS > market.MaximumRouteDispersionBPS {
+			continue
+		}
+		basis := math.Log(direct / fair)
+		if math.IsNaN(basis) || math.IsInf(basis, 0) {
+			continue
+		}
+		out = append(out, features.BasisSample{Time: at, Value: basis, Source: features.BasisSourceREST})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.Before(out[j].Time) })
+	return out
+}
+
+func mergeBasisSamples(dst map[time.Time]features.BasisSample, samples []features.BasisSample) {
+	for _, sample := range samples {
+		at := sample.Time.UTC().Truncate(time.Minute)
+		if at.IsZero() {
+			continue
+		}
+		sample.Time = at
+		existing, exists := dst[at]
+		if !exists || sample.Source == features.BasisSourceLive || existing.Source != features.BasisSourceLive {
+			dst[at] = sample
+		}
+	}
+}
+
+func latestBasisSample(samples []features.BasisSample) time.Time {
+	var latest time.Time
+	for _, sample := range samples {
+		if sample.Time.After(latest) {
+			latest = sample.Time
+		}
+	}
+	return latest
+}
+
+func (a *App) persistBasis() error {
+	samples := a.features.BasisSamples()
+	if len(samples) == 0 {
+		return nil
+	}
+	if err := features.SaveBasisState(a.basisStatePath, samples); err != nil {
+		return err
+	}
+	a.basisPersisted = samples[len(samples)-1].Time
+	return nil
 }
 
 func (a *App) tick(ctx context.Context) error {
@@ -130,6 +286,11 @@ func (a *App) tick(ctx context.Context) error {
 		trades = nil
 	}
 	feat := a.features.Update(now, modelDirect, fair, trades)
+	if latest := a.features.LatestBasisTime(); latest.After(a.basisPersisted) {
+		if err := a.persistBasis(); err != nil {
+			a.log.Warn("persist live basis state", "error", err)
+		}
+	}
 
 	funding, fundingErr := a.exchange.Funding(ctx)
 	if fundingErr != nil {

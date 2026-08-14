@@ -129,10 +129,17 @@ Persistent files in `data/`:
 ```text
 risk_state.json       loss counters, equity anchors, latched hard halt
 position_state.json   observed position and software stop
- events.jsonl          planned orders, submissions, cancellations and errors
+basis_state.json      rolling timestamped basis samples and their source
+events.jsonl           planned orders, submissions, cancellations and errors
 ```
 
-After restart, the application rebuilds public books and fetches the paper account before it can submit anything. The final exchange adapter also rejects orders when its cached account snapshot is stale.
+After restart, the application restores recent exact live-book basis samples.
+If the state is absent, insufficient or stale, it requests aligned closed
+1-minute candles for XAUT/USD and both synthetic routes. Candle closes initialize
+the statistical basis only; fresh executable WebSocket books are still required
+for readiness and every order decision. The application also fetches the paper
+account before it can submit anything. The final exchange adapter rejects orders
+when its cached account snapshot is stale.
 
 ## Concurrency model
 

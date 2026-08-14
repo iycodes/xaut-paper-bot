@@ -39,3 +39,11 @@ func TestDefaultSeparatesPaperExecutionFromLiveSignalBooks(t *testing.T) {
 		t.Fatalf("symbol subscriptions omit execution or signal book: %#v", cfg.Symbols.All())
 	}
 }
+
+func TestRejectsBasisWarmupLargerThanWindow(t *testing.T) {
+	cfg := Default()
+	cfg.Market.WarmupSamples = cfg.Market.BasisWindow + 1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected basis window validation error")
+	}
+}

@@ -22,12 +22,13 @@ type frame struct {
 type Engine struct {
 	cfg         config.MarketConfig
 	basis       *series.Window
+	basisTimes  []time.Time
+	basisSource []string
 	basisBucket time.Time
 	f15         *frame
 	f1h         *frame
 	f4h         *frame
 	prevTrend   float64
-	samples     int
 }
 
 func New(cfg config.MarketConfig) *Engine {
@@ -65,7 +66,7 @@ func (e *Engine) Seed(timeframe string, candles []domain.Candle) {
 }
 
 func (e *Engine) Update(now time.Time, direct domain.BookSnapshot, fair domain.FairValue, trades []domain.PublicTrade) domain.Features {
-	out := domain.Features{SpreadBPS: direct.SpreadBPS(), Samples: e.samples}
+	out := domain.Features{SpreadBPS: direct.SpreadBPS(), Samples: e.basis.Len()}
 	if !direct.Valid() || !fair.Valid || fair.Price <= 0 {
 		return out
 	}
@@ -80,8 +81,9 @@ func (e *Engine) Update(now time.Time, direct domain.BookSnapshot, fair domain.F
 	basis := math.Log(price / fair.Price)
 	if e.basisBucket.IsZero() || minute.After(e.basisBucket) {
 		e.basis.Add(basis)
+		e.basisTimes = appendCappedTime(e.basisTimes, minute, e.cfg.BasisWindow)
+		e.basisSource = appendCappedString(e.basisSource, BasisSourceLive, e.cfg.BasisWindow)
 		e.basisBucket = minute
-		e.samples++
 	}
 
 	stdBasis := e.basis.StdDev()
@@ -109,7 +111,7 @@ func (e *Engine) Update(now time.Time, direct domain.BookSnapshot, fair domain.F
 	// Actual executed flow receives the largest weight; displayed liquidity alone
 	// cannot dominate the signal.
 	out.MicroScore = clamp(.25*out.DepthImbalance+.35*out.OrderFlowScore+.20*microNorm+.20*flowPersistence(trades), -1, 1)
-	out.Samples = e.samples
+	out.Samples = e.basis.Len()
 	out.Warm = e.basis.Len() >= e.cfg.WarmupSamples && e.f15.closes.Len() >= 12 && e.f1h.closes.Len() >= 12 && e.f4h.closes.Len() >= 12
 	return out
 }

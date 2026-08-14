@@ -272,6 +272,9 @@ func (c Config) Validate() error {
 	if c.Market.Trend15mWeight+c.Market.Trend1hWeight+c.Market.Trend4hWeight < .999 || c.Market.Trend15mWeight+c.Market.Trend1hWeight+c.Market.Trend4hWeight > 1.001 {
 		errs = append(errs, "market trend timeframe weights must sum to 1")
 	}
+	if c.Market.WarmupSamples < 2 || c.Market.BasisWindow < c.Market.WarmupSamples || c.Market.BasisWindow > 1000 {
+		errs = append(errs, "market basis_window must be between warmup_samples and 1000, and warmup_samples must be at least 2")
+	}
 	for name, w := range map[string]Weights{"range": c.Strategy.RangeWeights, "trend": c.Strategy.TrendWeights, "dislocation": c.Strategy.DislocationWeights} {
 		if abs(w.Trend+w.Basis+w.Micro-1) > 1e-9 {
 			errs = append(errs, fmt.Sprintf("strategy.%s_weights must sum to 1", name))

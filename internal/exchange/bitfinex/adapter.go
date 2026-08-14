@@ -503,7 +503,9 @@ func (a *Adapter) Candles(_ context.Context, symbol, timeframe string, limit int
 	}
 	q := url.Values{}
 	q.Set("limit", strconv.Itoa(limit))
-	q.Set("sort", "1")
+	// Ask for the newest records explicitly. Feature seeding sorts the decoded
+	// candles chronologically after excluding the still-open bucket.
+	q.Set("sort", "-1")
 	raw, err := a.publicRequest("candles/trade:"+timeframe+":"+symbol+"/hist", q)
 	if err != nil {
 		return nil, err

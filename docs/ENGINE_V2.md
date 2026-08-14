@@ -5,7 +5,7 @@ The engine deliberately does not turn a weighted indicator score directly into a
 1. Verify book freshness, route agreement, spread, account freshness and risk state.
 2. Update independent 15m/1h/4h bars and classify trend/transition/range/dislocation.
 3. Estimate executable fair bid/ask from independent XAUT routes.
-4. Compute basis, multi-level depth and actual aggressive trade-flow features.
+4. Restore or REST-backfill the rolling statistical basis, then update it from live executable books and compute multi-level depth and actual aggressive trade-flow features.
 5. Apply regime-specific weights and direction-specific entry thresholds.
 6. For shorts, require fresh XAUT funding information and positive expected edge after funding/uncertainty/short buffer.
 7. Translate signal to a target, then size from dollar loss at stop and hard portfolio caps.

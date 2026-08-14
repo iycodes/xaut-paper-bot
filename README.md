@@ -14,7 +14,7 @@ The decision chain is deliberately hierarchical:
 
 - **Trend:** independently closed 15-minute, 1-hour and 4-hour bars; no 5-second pseudo-timeframes.
 - **Fair value:** side-specific executable synthetic bid/ask from `XAUT/UST × UST/USD` and `XAUT/BTC × BTC/USD`. Route midpoints are not used to approve an executable edge.
-- **Basis:** minute-sampled rolling log basis and z-score to avoid variance compression from repeatedly sampling an unchanged book.
+- **Basis:** minute-sampled rolling log basis and z-score to avoid variance compression from repeatedly sampling an unchanged book. Exact live-book samples persist across restarts; a first start can initialize from aligned, closed 1-minute REST candles while live executable prices remain mandatory for trading.
 - **Microstructure:** multi-level book imbalance, executed trade flow, microprice and flow persistence.
 - **Regimes:** `trend`, `range`, `dislocation`, `transition`, `no_trade`. Strong trend has priority over dislocation; mean reversion is vetoed while trend/volatility/basis state is unstable.
 
@@ -58,6 +58,11 @@ Target sizing is validated against the **simulated dollar loss at the active sto
 ### Live paper analytics
 
 Authenticated paper fills are stored in `data/fills.jsonl`; completed trades are stored in `data/trades.jsonl`. The persistent ledger records fill-based entry/exit VWAP, realized P&L, fees, funding estimate, R multiple, MFE/MAE, entry regime, basis, trend, micro score, combined score and fair-value confidence. Consecutive-loss risk state is driven by completed fill-based trades rather than a market-price approximation.
+
+The rolling basis window is stored in `data/basis_state.json`. On a cold start,
+the bot restores recent samples and uses aligned closed 1-minute candles from
+both synthetic routes as a fallback. Candle-derived basis is initialization
+only; order approval always requires fresh executable WebSocket books.
 
 ## Bitfinex markets
 
