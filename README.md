@@ -106,6 +106,45 @@ curl http://127.0.0.1:8082/readyz
 
 Create the configured `HALT` file to block new trading and invoke configured hard-halt behavior.
 
+## Diagnostic report
+
+Build and run the diagnostic CLI from the project directory:
+
+```bash
+go build -trimpath -o bin/xautdiag ./cmd/xautdiag
+./bin/xautdiag -config configs/config.json -output xaut-diagnostic.json
+```
+
+Or use the Make target:
+
+```bash
+make diagnose
+```
+
+The report combines `/status`, health and readiness probes, sanitized
+configuration, collector-process credential-presence booleans, persisted risk/position/basis
+state, recent events/fills/trades, and the relevant tail of `xautbot.log`.
+High-volume raw WebSocket lines are omitted. Environment values and `.env`
+contents are never collected, and output files are created with mode `0600`.
+Live `paper_verified` and `orders_enabled` fields are authoritative. If you want
+the optional collector-process credential booleans to reflect `.env`, source it
+before running the CLI; values are still never included in the report.
+
+Inspect the immediate explanation locally with:
+
+```bash
+jq '.findings' xaut-diagnostic.json
+```
+
+If the bot uses a different URL or log location:
+
+```bash
+./bin/xautdiag \
+  -url http://127.0.0.1:8082 \
+  -log /path/to/xautbot.log \
+  -output xaut-diagnostic.json
+```
+
 ## Supervisor on Linux
 
 Build the binary before starting Supervisor:
@@ -115,6 +154,7 @@ mkdir -p bin
 go mod tidy
 go test ./...
 go build -trimpath -o bin/xautbot ./cmd/xautbot
+go build -trimpath -o bin/xautdiag ./cmd/xautdiag
 chmod +x scripts/run-xautbot.sh
 ```
 
@@ -135,6 +175,7 @@ control socket are also kept in the project directory.
 
 ```text
 cmd/xautbot/                  process entry point
+cmd/xautdiag/                 shareable runtime diagnostic report CLI
 internal/app/                 engine orchestration
 internal/exchange/bitfinex/   official Bitfinex Go SDK adapter
 internal/fairvalue/           executable synthetic fair value
@@ -147,6 +188,7 @@ internal/execution/           child orders + exchange protective stops
 internal/performance/         fill-based paper performance ledger
 internal/monitor/             health/status HTTP server
 internal/journal/             event journal
+internal/diagnostic/          sanitized state collection + no-trade findings
 configs/                      default/example configuration
 ```
 

@@ -1,7 +1,9 @@
 APP := xautbot
+DIAG := xautdiag
 CONFIG ?= configs/config.json
+DIAG_OUTPUT ?= xaut-diagnostic.json
 
-.PHONY: fmt test vet build run docker-build docker-up docker-down clean package
+.PHONY: fmt test vet build run diagnose docker-build docker-up docker-down clean package
 
 fmt:
 	gofmt -w ./cmd ./internal
@@ -15,9 +17,15 @@ vet:
 build:
 	mkdir -p bin
 	go build -trimpath -o bin/$(APP) ./cmd/xautbot
+	go build -trimpath -o bin/$(DIAG) ./cmd/xautdiag
 
 run:
 	go run ./cmd/xautbot -config $(CONFIG)
+
+diagnose:
+	mkdir -p bin
+	go build -trimpath -o bin/$(DIAG) ./cmd/xautdiag
+	./bin/$(DIAG) -config $(CONFIG) -output $(DIAG_OUTPUT)
 
 docker-build:
 	docker compose build
