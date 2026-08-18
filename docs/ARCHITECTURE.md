@@ -104,7 +104,8 @@ strategy exposure cap
   -> per-trade stop-risk cap
   -> aggregate open-risk cap
   -> order-book participation cap
-  -> available hard capacity after pending opening orders
+  -> final target exposure
+  -> projected exposure including pending opening orders
   -> 1.0x absolute gross cap
 ```
 
@@ -145,8 +146,13 @@ when its cached account snapshot is stale.
 
 The SDK manages network activity in the background. The application performs all strategy, risk and execution decisions from one timed orchestration loop. Shared exchange caches and monitoring status use narrow mutex or atomic protection; order submission is serialized to avoid nonce and account-state races.
 
-Public trade and funding history use separate cached refresh schedules rather
+Public trade history and the current funding ticker use separate cached refresh schedules rather
 than running on every engine tick. A rate-limit response applies a shared pause
 to both trade-history streams, followed by bounded exponential backoff. This
 keeps WebSocket-driven book processing responsive without exhausting REST
 capacity.
+
+The transition ratios compare recent variability with their longer baseline;
+their neutral level is approximately `1.0`. The configured transition gates
+therefore remain above `1.0` (the default basis-instability gate is `1.6`) so a
+stable baseline does not accidentally become a permanent no-entry regime.

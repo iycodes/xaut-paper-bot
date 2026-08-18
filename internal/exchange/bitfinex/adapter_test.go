@@ -62,3 +62,22 @@ func TestPaperWalletCurrencyAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestParseFundingTickerUsesCurrentBorrowAsk(t *testing.T) {
+	at := time.Now().UTC()
+	raw := []interface{}{0.00021, 0.00020, 2.0, 10.0, 0.00023, 7.0, 25.0}
+	got, err := parseFundingTicker(raw, "fXAUT", at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Valid || got.DailyRate != 0.00023 || got.AmountAvailable != 25 || !got.UpdatedAt.Equal(at) {
+		t.Fatalf("unexpected funding ticker: %+v", got)
+	}
+}
+
+func TestParseFundingTickerFallsBackToFRR(t *testing.T) {
+	got, err := parseFundingTicker([]interface{}{0.00021, 0.0, 2.0, 0.0, nil, 0.0, 0.0}, "fXAUT", time.Now().UTC())
+	if err != nil || !got.Valid || got.DailyRate != 0.00021 {
+		t.Fatalf("unexpected FRR fallback: snapshot=%+v error=%v", got, err)
+	}
+}

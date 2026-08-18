@@ -63,6 +63,10 @@ func (e *Engine) Seed(timeframe string, candles []domain.Candle) {
 		}
 		f.addClosed(c.Time, c.Close)
 	}
+	// Seeded candles are already closed. Start a fresh live bucket instead of
+	// closing the final seeded candle a second time on the first Update call.
+	f.bucket = time.Time{}
+	f.current = 0
 }
 
 func (e *Engine) Update(now time.Time, direct domain.BookSnapshot, fair domain.FairValue, trades []domain.PublicTrade) domain.Features {
@@ -102,7 +106,10 @@ func (e *Engine) Update(now time.Time, direct domain.BookSnapshot, fair domain.F
 	out.VolatilityRatio = volatilityRatio(e.f15.returns.Values(), 8, 40)
 	out.BasisInstability = basisInstability(e.basis.Values())
 	out.DepthImbalance = depthImbalance(direct, e.cfg.MicroDepthLevels)
-	out.OrderFlowScore = tradeFlow(now, trades, e.cfg.TradeFlowLookback.Duration)
+	flowFresh := latestTradeFresh(now, trades, e.cfg.MaximumTradeAge.Duration)
+	if flowFresh {
+		out.OrderFlowScore = tradeFlow(now, trades, e.cfg.TradeFlowLookback.Duration)
+	}
 	halfSpread := (direct.Ask - direct.Bid) / 2
 	microNorm := 0.0
 	if halfSpread > 0 {
@@ -110,7 +117,11 @@ func (e *Engine) Update(now time.Time, direct domain.BookSnapshot, fair domain.F
 	}
 	// Actual executed flow receives the largest weight; displayed liquidity alone
 	// cannot dominate the signal.
-	out.MicroScore = clamp(.25*out.DepthImbalance+.35*out.OrderFlowScore+.20*microNorm+.20*flowPersistence(trades), -1, 1)
+	persistence := 0.0
+	if flowFresh {
+		persistence = flowPersistence(now, trades, e.cfg.TradeFlowLookback.Duration)
+	}
+	out.MicroScore = clamp(.25*out.DepthImbalance+.35*out.OrderFlowScore+.20*microNorm+.20*persistence, -1, 1)
 	out.Samples = e.basis.Len()
 	out.Warm = e.basis.Len() >= e.cfg.WarmupSamples && e.f15.closes.Len() >= 12 && e.f1h.closes.Len() >= 12 && e.f4h.closes.Len() >= 12
 	return out
@@ -238,10 +249,19 @@ func tradeFlow(now time.Time, trades []domain.PublicTrade, lookback time.Duratio
 	}
 	return safeDiv(buy-sell, buy+sell)
 }
-func flowPersistence(trades []domain.PublicTrade) float64 {
-	if len(trades) < 4 {
+func flowPersistence(now time.Time, trades []domain.PublicTrade, lookback time.Duration) float64 {
+	fresh := make([]domain.PublicTrade, 0, len(trades))
+	for _, trade := range trades {
+		age := now.Sub(trade.Time)
+		if age < 0 || age > lookback || trade.Price <= 0 || trade.Amount == 0 {
+			continue
+		}
+		fresh = append(fresh, trade)
+	}
+	if len(fresh) < 4 {
 		return 0
 	}
+	trades = fresh
 	n := len(trades)
 	if n > 20 {
 		trades = trades[n-20:]
@@ -257,6 +277,19 @@ func flowPersistence(trades []domain.PublicTrade) float64 {
 		}
 	}
 	return safeDiv(signed, total)
+}
+
+func latestTradeFresh(now time.Time, trades []domain.PublicTrade, maximumAge time.Duration) bool {
+	if maximumAge <= 0 {
+		return false
+	}
+	var latest time.Time
+	for _, trade := range trades {
+		if trade.Price > 0 && !trade.Time.After(now) && trade.Time.After(latest) {
+			latest = trade.Time
+		}
+	}
+	return !latest.IsZero() && now.Sub(latest) <= maximumAge
 }
 func std(v []float64) float64 {
 	if len(v) < 2 {

@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -39,11 +37,19 @@ func main() {
 
 	started := time.Now().UTC()
 	store := monitor.NewStore(started)
-	server := monitor.New(cfg.App.HTTPAddress, store)
+	staleAfter := 3 * cfg.App.TickInterval.Duration
+	if staleAfter < 30*time.Second {
+		staleAfter = 30 * time.Second
+	}
+	server := monitor.New(cfg.App.HTTPAddress, store, staleAfter)
+	if err := server.Start(); err != nil {
+		logger.Error("start status server", "address", cfg.App.HTTPAddress, "error", err)
+		os.Exit(1)
+	}
+	logger.Info("status server listening", "address", cfg.App.HTTPAddress)
 	go func() {
-		logger.Info("status server listening", "address", cfg.App.HTTPAddress)
-		if err := server.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("status server", "error", err)
+		if err := <-server.Errors(); err != nil {
+			logger.Error("status server stopped", "error", err)
 		}
 	}()
 	defer server.Shutdown()

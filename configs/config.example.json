@@ -43,7 +43,7 @@
     "public_trades_refresh": "10s",
     "transition_vol_ratio": 1.6,
     "transition_trend_acceleration": 0.3,
-    "transition_basis_instability": 0.75,
+    "transition_basis_instability": 1.6,
     "high_volatility_fraction": 0.012,
     "trend_15m_weight": 0.2,
     "trend_1h_weight": 0.35,
@@ -126,7 +126,6 @@
     "expected_holding_hours": 8,
     "maximum_edge_share": 0.2,
     "maximum_age": "10m",
-    "lookback": "6h",
     "refresh_interval": "1m"
   },
   "gold": {

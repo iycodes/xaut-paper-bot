@@ -33,3 +33,13 @@ func TestTransitionBlocksMeanReversion(t *testing.T) {
 		t.Fatalf("expected transition, got %s", r)
 	}
 }
+
+func TestStableBaselineBasisRatioAllowsRange(t *testing.T) {
+	c, now, b, fv, f := validInputs()
+	f.BasisInstability = 1
+	f.TrendScore = .1
+	r, _ := New(c.Market, c.Strategy).Classify(now, b, fv, f)
+	if r != domain.RegimeRange {
+		t.Fatalf("expected stable baseline to classify as range, got %s", r)
+	}
+}

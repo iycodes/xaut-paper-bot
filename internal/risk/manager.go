@@ -102,6 +102,10 @@ func (m *Manager) RecordClosedTrade(pnl float64) error {
 	} else if pnl > 0 {
 		m.state.ConsecutiveLosses = 0
 	}
+	if !m.state.HardHalt && m.cfg.MaximumConsecutiveLosses > 0 && m.state.ConsecutiveLosses >= m.cfg.MaximumConsecutiveLosses {
+		m.state.HardHalt = true
+		m.state.HaltReason = fmt.Sprintf("%d consecutive losses", m.state.ConsecutiveLosses)
+	}
 	return m.saveLocked()
 }
 
@@ -175,8 +179,6 @@ func (m *Manager) Evaluate(now time.Time, signal domain.Signal, f domain.Feature
 	}
 	riskSizedNotional := riskBudget / stopDistance
 	targetNotional := minPositive(desiredNotional, riskSizedNotional, liquidityCap, absoluteCap)
-	pending := pendingOpeningNotional(account.OpenOrders, fair.Price)
-	targetNotional = math.Min(targetNotional, math.Max(0, absoluteCap-pending))
 
 	isReduction := desiredExposure == 0 || (sameSign(desiredExposure, currentExposure) && math.Abs(desiredExposure) < math.Abs(currentExposure))
 	if isReduction {
@@ -233,8 +235,13 @@ func (m *Manager) Evaluate(now time.Time, signal domain.Signal, f domain.Feature
 		actualRisk = riskBudget
 	}
 
+	// Target notional is the desired final position, not an additional order.
+	// Pending opening quantity therefore belongs in the projected position only;
+	// subtracting it from target and adding it again double-counts working orders.
+	pendingQty := pendingOpeningQuantity(account.OpenOrders)
+	projectedNotional := math.Abs((currentQty + pendingQty) * fair.Price)
 	currentNotional := math.Abs(currentQty * fair.Price)
-	worst := math.Max(targetNotional, currentNotional) + pending
+	worst := math.Max(targetNotional, math.Max(currentNotional, projectedNotional))
 	if worst > absoluteCap+1e-6 {
 		d.Reason = fmt.Sprintf("worst-case exposure $%.2f exceeds hard cap $%.2f", worst, absoluteCap)
 		return d
@@ -251,14 +258,16 @@ func (m *Manager) Evaluate(now time.Time, signal domain.Signal, f domain.Feature
 	return d
 }
 
-func pendingOpeningNotional(orders []domain.OpenOrder, price float64) float64 {
-	var n float64
+func pendingOpeningQuantity(orders []domain.OpenOrder) float64 {
+	var q float64
 	for _, o := range orders {
-		if (o.Venue == domain.VenueSpot && o.RemainingAmount > 0) || (o.Venue == domain.VenueMargin && o.RemainingAmount < 0) {
-			n += math.Abs(o.RemainingAmount) * price
+		if o.Venue == domain.VenueSpot && o.RemainingAmount > 0 {
+			q += o.RemainingAmount
+		} else if o.Venue == domain.VenueMargin && o.RemainingAmount < 0 {
+			q += o.RemainingAmount
 		}
 	}
-	return n
+	return q
 }
 func sameSign(a, b float64) bool { return (a > 0 && b > 0) || (a < 0 && b < 0) }
 func minPositive(v ...float64) float64 {

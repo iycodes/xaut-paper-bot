@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,7 +176,6 @@ type FundingConfig struct {
 	ExpectedHoldingHours float64  `json:"expected_holding_hours"`
 	MaximumEdgeShare     float64  `json:"maximum_edge_share"`
 	MaximumAge           Duration `json:"maximum_age"`
-	Lookback             Duration `json:"lookback"`
 	RefreshInterval      Duration `json:"refresh_interval"`
 }
 type GoldConfig struct {
@@ -192,26 +192,25 @@ func Default() Config {
 		App:       AppConfig{Name: "xaut-paper-bot", TickInterval: Duration{5 * time.Second}, AccountRefresh: Duration{10 * time.Second}, HTTPAddress: ":8082", DataDirectory: "data", ObserveOnly: true, FlattenOnHardHalt: true, CancelOnShutdown: true},
 		Bitfinex:  BitfinexConfig{APIKeyEnv: "BITFINEX_API_KEY", APISecretEnv: "BITFINEX_API_SECRET", PaperAckEnv: "BFX_PAPER_TRADING_ACK", PaperAckValue: "I_UNDERSTAND_PAPER_ONLY", ReconnectEvery: Duration{3 * time.Second}, ReconnectTries: 100, HeartbeatTimeout: Duration{20 * time.Second}, USTHaircut: .995, PublicAPIBase: "https://api-pub.bitfinex.com/v2"},
 		Symbols:   SymbolConfig{OrderPair: "tTESTXAUT:TESTUSD", XAUTUSD: "tXAUT:USD", XAUTUST: "tXAUT:UST", USTUSD: "tUSTUSD", XAUTBTC: "tXAUT:BTC", BTCUSD: "tBTCUSD", XAUTFunding: "fXAUT"},
-		Market:    MarketConfig{BookDepthBPS: 10, MaximumBookAge: Duration{15 * time.Second}, MaximumTradeAge: Duration{30 * time.Second}, MaximumDirectSpreadBPS: 20, MaximumRouteDispersionBPS: 35, FairValueModelBufferBPS: 3, WarmupSamples: 80, BasisWindow: 240, MicroDepthLevels: 5, TradeFlowLookback: Duration{60 * time.Second}, PublicTradesRefresh: Duration{10 * time.Second}, TransitionVolRatio: 1.6, TransitionTrendAcceleration: .30, TransitionBasisInstability: .75, HighVolatilityFraction: .012, Trend15mWeight: .20, Trend1hWeight: .35, Trend4hWeight: .45},
+		Market:    MarketConfig{BookDepthBPS: 10, MaximumBookAge: Duration{15 * time.Second}, MaximumTradeAge: Duration{30 * time.Second}, MaximumDirectSpreadBPS: 20, MaximumRouteDispersionBPS: 35, FairValueModelBufferBPS: 3, WarmupSamples: 80, BasisWindow: 240, MicroDepthLevels: 5, TradeFlowLookback: Duration{60 * time.Second}, PublicTradesRefresh: Duration{10 * time.Second}, TransitionVolRatio: 1.6, TransitionTrendAcceleration: .30, TransitionBasisInstability: 1.6, HighVolatilityFraction: .012, Trend15mWeight: .20, Trend1hWeight: .35, Trend4hWeight: .45},
 		Strategy:  StrategyConfig{RangeWeights: Weights{Trend: .15, Basis: .70, Micro: .15}, TrendWeights: Weights{Trend: .65, Basis: .20, Micro: .15}, DislocationWeights: Weights{Trend: .10, Basis: .80, Micro: .10}, TrendRegimeThreshold: .45, DislocationZThreshold: 2.1, MeanReversionTrendVeto: .32, LongEntryThreshold: .38, ShortEntryThreshold: .48, TrendExitThreshold: .15, MeanReversionExitZ: .55, LongNormalCap: .80, ShortNormalCap: .60, HighConfidenceShortCap: .80, HighConfidenceThreshold: .90, MinimumConfidence: .40, MinimumExpectedEdgeBPS: 8, ShortExtraBufferBPS: 4, ThesisResetBasisZ: 1.0, ThesisResetTrend: .20, ReentryCooldown: Duration{20 * time.Minute}},
 		Risk:      RiskConfig{CapitalBaseUSD: 30_000, RiskPerTradeFraction: .002, MaximumOpenRiskFraction: .005, AbsoluteGrossExposure: 1, MinimumStopFraction: .0035, VolatilityStopMultiplier: 1.75, DailySoftLoss1USD: 100, DailySoftLoss1Throttle: .75, DailySoftLoss2USD: 150, DailySoftLoss2Throttle: .50, DailyHardLossUSD: 225, WeeklyHardLossUSD: 600, MaximumDrawdownUSD: 1500, MaximumConsecutiveLosses: 3, LiquidityParticipation: .05, MinimumOrderNotionalUSD: 25, AccountMaximumAge: Duration{30 * time.Second}, TrailingActivationR: 1.5, TrailingDistanceR: 1.0, MaximumHoldingTime: Duration{72 * time.Hour}, HaltFile: "HALT"},
 		Execution: ExecutionConfig{GroupID: 883301, StopGroupID: 883302, MinimumXAUTQuantity: .002, QuantityStep: .0001, PriceStep: .1, TargetToleranceXAUT: .001, MaximumChildNotionalUSD: 5000, DepthParticipation: .05, RecentVolumeParticipation: .10, MaximumOrderAge: Duration{45 * time.Second}, MinimumSubmitInterval: Duration{5 * time.Second}, UrgentSlippageBPS: 8, ProtectiveStops: true},
-		Funding:   FundingConfig{FallbackDailyRate: .0003, ExpectedHoldingHours: 8, MaximumEdgeShare: .20, MaximumAge: Duration{10 * time.Minute}, Lookback: Duration{6 * time.Hour}, RefreshInterval: Duration{time.Minute}},
+		Funding:   FundingConfig{FallbackDailyRate: .0003, ExpectedHoldingHours: 8, MaximumEdgeShare: .20, MaximumAge: Duration{10 * time.Minute}, RefreshInterval: Duration{time.Minute}},
 		Gold:      GoldConfig{Enabled: false, URL: "", PriceJSONField: "price", MaximumAge: Duration{2 * time.Minute}, BasisEWMAAlpha: .02, MaximumDeviationBPS: 100},
 	}
 }
 
 func Load(path string) (Config, error) {
 	cfg := Default()
-	if path == "" {
-		return cfg, cfg.Validate()
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return cfg, err
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("decode config: %w", err)
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return cfg, err
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return cfg, fmt.Errorf("decode config: %w", err)
+		}
 	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
@@ -219,11 +218,17 @@ func Load(path string) (Config, error) {
 	if !filepath.IsAbs(cfg.App.DataDirectory) {
 		cfg.App.DataDirectory = filepath.Clean(cfg.App.DataDirectory)
 	}
+	if cfg.Risk.HaltFile != "" && !filepath.IsAbs(cfg.Risk.HaltFile) {
+		cfg.Risk.HaltFile = filepath.Join(cfg.App.DataDirectory, cfg.Risk.HaltFile)
+	}
 	return cfg, nil
 }
 
 func (c Config) Validate() error {
 	var errs []string
+	if parsed, parseErr := url.Parse(c.Bitfinex.PublicAPIBase); c.Bitfinex.PublicAPIBase == "" || parseErr != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		errs = append(errs, "bitfinex.public_api_base must be an absolute HTTP(S) URL")
+	}
 	if c.App.TickInterval.Duration <= 0 {
 		errs = append(errs, "app.tick_interval must be positive")
 	}
@@ -270,6 +275,12 @@ func (c Config) Validate() error {
 	}
 	if c.Market.PublicTradesRefresh.Duration <= 0 {
 		errs = append(errs, "market.public_trades_refresh must be positive")
+	}
+	if c.Market.MaximumTradeAge.Duration <= 0 || c.Market.TradeFlowLookback.Duration <= 0 {
+		errs = append(errs, "market trade ages and lookback must be positive")
+	}
+	if c.Market.TransitionBasisInstability <= 1 {
+		errs = append(errs, "market.transition_basis_instability must be greater than 1 because it is a recent/long volatility ratio")
 	}
 	if c.Funding.RefreshInterval.Duration <= 0 {
 		errs = append(errs, "funding.refresh_interval must be positive")

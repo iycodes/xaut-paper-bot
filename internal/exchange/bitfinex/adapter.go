@@ -55,7 +55,11 @@ type Adapter struct {
 func New(cfg config.Config) *Adapter {
 	key := strings.TrimSpace(os.Getenv(cfg.Bitfinex.APIKeyEnv))
 	secret := strings.TrimSpace(os.Getenv(cfg.Bitfinex.APISecretEnv))
+	baseURL := strings.TrimSpace(cfg.Bitfinex.PublicAPIBase)
 	client := rest.NewClient()
+	if baseURL != "" {
+		client = rest.NewClientWithURL(strings.TrimRight(baseURL, "/") + "/")
+	}
 	if key != "" && secret != "" {
 		client.Credentials(key, secret)
 	}
@@ -531,46 +535,36 @@ func (a *Adapter) Candles(_ context.Context, symbol, timeframe string, limit int
 }
 
 func (a *Adapter) Funding(_ context.Context) (domain.FundingSnapshot, error) {
-	lookback := a.cfg.Funding.Lookback.Duration
-	if lookback <= 0 {
-		lookback = 6 * time.Hour
-	}
-	q := url.Values{}
-	q.Set("limit", "1000")
-	q.Set("sort", "1")
-	q.Set("start", strconv.FormatInt(time.Now().UTC().Add(-lookback).UnixMilli(), 10))
-	raw, err := a.publicRequest("trades/"+a.cfg.Symbols.XAUTFunding+"/hist", q)
+	// Funding trades can be hours old in a quiet XAUT market even while current
+	// borrow offers are available. The funding ticker's ask is the live rate at
+	// which a short can take XAUT funding; it is also on a much less restrictive
+	// endpoint than public trade history.
+	raw, err := a.publicRequest("ticker/"+a.cfg.Symbols.XAUTFunding, url.Values{})
 	if err != nil {
 		return domain.FundingSnapshot{}, err
 	}
-	var weighted, weight float64
-	var newest time.Time
-	for _, item := range raw {
-		row, ok := item.([]interface{})
-		if !ok || len(row) < 5 {
-			continue
-		}
-		mts, ok0 := int64num(row[1])
-		amount, ok1 := numeric(row[2])
-		rate, ok2 := numeric(row[3])
-		if !ok0 || !ok1 || !ok2 {
-			continue
-		}
-		w := math.Abs(amount)
-		if w == 0 {
-			w = 1
-		}
-		weighted += rate * w
-		weight += w
-		t := time.UnixMilli(mts).UTC()
-		if t.After(newest) {
-			newest = t
-		}
+	return parseFundingTicker(raw, a.cfg.Symbols.XAUTFunding, time.Now().UTC())
+}
+
+func parseFundingTicker(raw []interface{}, symbol string, at time.Time) (domain.FundingSnapshot, error) {
+	if len(raw) < 7 {
+		return domain.FundingSnapshot{Symbol: symbol, UpdatedAt: at, Reason: "funding ticker response incomplete"}, errors.New("funding ticker response incomplete")
 	}
-	if weight == 0 {
-		return domain.FundingSnapshot{Symbol: a.cfg.Symbols.XAUTFunding, Valid: false, UpdatedAt: time.Now().UTC(), Reason: "no recent XAUT funding trades"}, errors.New("no recent XAUT funding trades")
+	frr, frrOK := numeric(raw[0])
+	ask, askOK := numeric(raw[4])
+	askSize, _ := numeric(raw[6])
+	rate := ask
+	source := "Bitfinex funding ticker ask"
+	usingFRR := false
+	if !askOK || ask <= 0 || math.IsNaN(ask) || math.IsInf(ask, 0) {
+		rate = frr
+		source = "Bitfinex funding ticker FRR"
+		usingFRR = true
 	}
-	return domain.FundingSnapshot{Symbol: a.cfg.Symbols.XAUTFunding, DailyRate: weighted / weight, Source: "Bitfinex public funding trades", Valid: true, UpdatedAt: newest}, nil
+	if (usingFRR && !frrOK) || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return domain.FundingSnapshot{Symbol: symbol, UpdatedAt: at, Reason: "funding ticker has no positive ask or FRR"}, errors.New("funding ticker has no positive ask or FRR")
+	}
+	return domain.FundingSnapshot{Symbol: symbol, DailyRate: rate, AmountAvailable: math.Abs(askSize), Source: source, Valid: true, UpdatedAt: at}, nil
 }
 
 func (a *Adapter) publicRequest(ref string, params url.Values) ([]interface{}, error) {
@@ -617,6 +611,7 @@ func (a *Adapter) Fills(_ context.Context, since time.Time) ([]domain.Fill, erro
 		amt, ok3 := numeric(row[4])
 		px, ok4 := numeric(row[5])
 		fee, ok5 := numeric(row[9])
+		maker, _ := numeric(row[8])
 		cid, _ := int64num(row[11])
 		if !ok0 || !ok1 || !ok2 || !ok3 || !ok4 || !ok5 {
 			continue
@@ -624,7 +619,7 @@ func (a *Adapter) Fills(_ context.Context, since time.Time) ([]domain.Fill, erro
 		typ, _ := row[6].(string)
 		symbol, _ := row[1].(string)
 		feeCcy, _ := row[10].(string)
-		out = append(out, domain.Fill{ID: id, OrderID: oid, CID: cid, Symbol: symbol, Amount: amt, Price: px, OrderType: typ, Fee: fee, FeeCurrency: feeCcy, Time: time.UnixMilli(mts).UTC()})
+		out = append(out, domain.Fill{ID: id, OrderID: oid, CID: cid, Symbol: symbol, Amount: amt, Price: px, OrderType: typ, Maker: maker != 0, Fee: fee, FeeCurrency: feeCcy, Time: time.UnixMilli(mts).UTC()})
 	}
 	return out, nil
 }

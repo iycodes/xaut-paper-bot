@@ -47,7 +47,10 @@ func (c *Classifier) Classify(now time.Time, direct domain.BookSnapshot, fair do
 	if math.Abs(f.BasisZ) >= c.strategy.DislocationZThreshold && math.Abs(f.TrendScore) <= c.strategy.MeanReversionTrendVeto && fair.RouteDispersionBPS <= c.market.MaximumRouteDispersionBPS/2 {
 		return domain.RegimeDislocation, "large executable-basis deviation with trend veto passed and routes agreeing"
 	}
-	if math.Abs(f.TrendScore) <= c.strategy.MeanReversionTrendVeto && f.BasisInstability < 1.25 {
+	// The instability gate above already rejected expanding basis variance. Do
+	// not apply a second, stricter hard-coded ratio here or normal (~1.0)
+	// stationary behavior becomes unreachable as a range regime.
+	if math.Abs(f.TrendScore) <= c.strategy.MeanReversionTrendVeto {
 		return domain.RegimeRange, "stable range/mean-reversion conditions"
 	}
 	return domain.RegimeTransition, "ambiguous transition state"

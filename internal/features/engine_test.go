@@ -36,3 +36,51 @@ func TestSeededMultiTimeframeAndFlow(t *testing.T) {
 		t.Fatalf("expected buy flow %+v", o)
 	}
 }
+
+func TestFirstLiveUpdateDoesNotDuplicateFinalSeededCandle(t *testing.T) {
+	cfg := config.Default()
+	e := New(cfg.Market)
+	now := time.Now().UTC().Truncate(15 * time.Minute)
+	e.Seed("15m", []domain.Candle{
+		{Time: now.Add(-30 * time.Minute), Close: 4000},
+		{Time: now.Add(-15 * time.Minute), Close: 4010},
+	})
+	beforeCloses, beforeReturns := e.f15.closes.Len(), e.f15.returns.Len()
+	book := domain.BookSnapshot{Bid: 4019, Ask: 4021, BidQty: 1, AskQty: 1, UpdatedAt: now}
+	fair := domain.FairValue{Valid: true, Price: 4020, Bid: 4019, Ask: 4021}
+	e.Update(now, book, fair, nil)
+	if e.f15.closes.Len() != beforeCloses || e.f15.returns.Len() != beforeReturns {
+		t.Fatalf("first live update duplicated a seeded close: closes %d->%d returns %d->%d", beforeCloses, e.f15.closes.Len(), beforeReturns, e.f15.returns.Len())
+	}
+}
+
+func TestStaleCachedTradesDoNotContributeFlowPersistence(t *testing.T) {
+	now := time.Now().UTC()
+	trades := []domain.PublicTrade{
+		{Time: now.Add(-2 * time.Minute), Amount: 1, Price: 4000},
+		{Time: now.Add(-2 * time.Minute), Amount: 1, Price: 4000},
+		{Time: now.Add(-2 * time.Minute), Amount: 1, Price: 4000},
+		{Time: now.Add(-2 * time.Minute), Amount: 1, Price: 4000},
+	}
+	if latestTradeFresh(now, trades, 30*time.Second) {
+		t.Fatal("stale cached trades reported as fresh")
+	}
+	if got := flowPersistence(now, trades, time.Minute); got != 0 {
+		t.Fatalf("stale persistence = %v, want 0", got)
+	}
+}
+
+func TestBasisInstabilityStableBaselineIsNearOne(t *testing.T) {
+	values := make([]float64, 240)
+	for i := range values {
+		if i%2 == 0 {
+			values[i] = -1
+		} else {
+			values[i] = 1
+		}
+	}
+	got := basisInstability(values)
+	if got < .9 || got > 1.1 {
+		t.Fatalf("stable ratio = %v, want approximately 1", got)
+	}
+}

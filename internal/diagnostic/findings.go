@@ -65,7 +65,23 @@ func deriveFindings(report Report) []Finding {
 	}
 
 	if status.Regime == domain.RegimeNoTrade || status.Regime == domain.RegimeTransition {
-		findings = append(findings, finding("blocking", "regime_blocks_entries", "The current market regime blocks new entries.", map[string]any{"regime": status.Regime, "signal_reason": status.Signal.Reason}))
+		findings = append(findings, finding("blocking", "regime_blocks_entries", "The current market regime blocks new entries.", map[string]any{
+			"regime":                        status.Regime,
+			"signal_reason":                 status.Signal.Reason,
+			"volatility":                    status.Features.Volatility,
+			"maximum_volatility":            cfg.Market.HighVolatilityFraction,
+			"volatility_ratio":              status.Features.VolatilityRatio,
+			"maximum_volatility_ratio":      cfg.Market.TransitionVolRatio,
+			"trend_acceleration":            status.Features.TrendAcceleration,
+			"maximum_trend_acceleration":    cfg.Market.TransitionTrendAcceleration,
+			"basis_instability":             status.Features.BasisInstability,
+			"maximum_basis_instability":     cfg.Market.TransitionBasisInstability,
+			"trend_score":                   status.Features.TrendScore,
+			"mean_reversion_trend_veto":     cfg.Strategy.MeanReversionTrendVeto,
+			"trend_regime_threshold":        cfg.Strategy.TrendRegimeThreshold,
+			"basis_z":                       status.Features.BasisZ,
+			"dislocation_basis_z_threshold": cfg.Strategy.DislocationZThreshold,
+		}))
 	}
 	if status.Signal.NoNewEntries {
 		findings = append(findings, finding("blocking", "signal_blocks_entries", "The strategy explicitly disabled new entries for the current tick.", map[string]any{"reason": status.Signal.Reason, "score": status.Signal.Score, "confidence": status.Signal.Confidence}))
@@ -77,6 +93,9 @@ func deriveFindings(report Report) []Finding {
 	}
 	if status.Risk.Halt {
 		findings = append(findings, finding("blocking", "risk_halt", "Risk management is in a hard-halt state.", map[string]any{"reason": status.Risk.Reason, "flatten": status.Risk.Flatten}))
+		if !status.Risk.Flatten && math.Abs(status.Position.QuantityXAUT) > 1e-9 {
+			findings = append(findings, finding("warning", "halt_does_not_flatten", "A position is open, but flatten_on_hard_halt is disabled, so the hard halt will not automatically close it.", map[string]any{"quantity_xaut": status.Position.QuantityXAUT}))
+		}
 	} else if !status.Risk.Allowed {
 		findings = append(findings, finding("blocking", "risk_rejected", "Risk management did not allow the current target.", map[string]any{"reason": status.Risk.Reason}))
 	}

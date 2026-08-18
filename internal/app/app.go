@@ -329,6 +329,45 @@ func (a *App) tick(ctx context.Context) error {
 		}
 	}
 
+	currentExposure := exposure(account, fair.Price, a.cfg.Risk.CapitalBaseUSD)
+	reg, regReason := a.regime.Classify(now, modelDirect, fair, feat)
+	signal := a.strategy.Signal(strategy.Input{Now: now, Regime: reg, RegimeReason: regReason, Features: feat, Fair: fair, Direct: modelDirect, Funding: funding, CurrentExposure: currentExposure})
+	posState := a.position.State()
+
+	// Consume fills and latch loss-based halts before evaluating risk for a new
+	// order. Otherwise the tick that observes the final allowed loss could still
+	// submit one extra entry using the previous risk state.
+	if a.exchange.PaperVerified() {
+		fills, fillErr := a.exchange.Fills(ctx, a.performance.Since())
+		if fillErr != nil {
+			a.log.Warn("account fills unavailable", "error", fillErr)
+			fills = nil
+		}
+		fundingRate := a.cfg.Funding.FallbackDailyRate
+		if funding.Valid && !funding.UpdatedAt.IsZero() && now.Sub(funding.UpdatedAt) <= a.cfg.Funding.MaximumAge.Duration {
+			fundingRate = math.Max(0, funding.DailyRate)
+		}
+		ctxPerf := performance.Context{Regime: reg, Features: feat, Signal: signal, Fair: fair, InitialStop: posState.StopPrice, FundingDailyRate: fundingRate}
+		closed, lerr := a.performance.Process(now, fills, account, ctxPerf, executionDirect.Mid(), a.lastExitReason)
+		if lerr != nil {
+			a.log.Warn("performance ledger", "error", lerr)
+		}
+		for _, tr := range closed {
+			if err := a.risk.RecordClosedTrade(tr.NetPnLUSD); err != nil {
+				a.log.Warn("persist closed-trade risk state", "error", err)
+			}
+			if strings.Contains(strings.ToLower(tr.ExitReason), "stop") {
+				dir := 1.0
+				if tr.Direction == "short" {
+					dir = -1
+				}
+				a.strategy.MarkStopped(dir, tr.ExitTime)
+			}
+			_ = a.journal.Append("trade_closed", tr)
+			a.lastExitReason = ""
+		}
+	}
+
 	// Drawdown logic receives true uncapped equity; only position sizing is capped.
 	observedEquity := account.EquityUSD
 	if account.Synthetic || observedEquity <= 0 {
@@ -337,40 +376,10 @@ func (a *App) tick(ctx context.Context) error {
 	if err := a.risk.ObserveEquity(now, observedEquity); err != nil {
 		a.log.Warn("persist risk state", "error", err)
 	}
-
-	currentExposure := exposure(account, fair.Price, a.cfg.Risk.CapitalBaseUSD)
-	reg, regReason := a.regime.Classify(now, modelDirect, fair, feat)
-	signal := a.strategy.Signal(strategy.Input{Now: now, Regime: reg, RegimeReason: regReason, Features: feat, Fair: fair, Direct: modelDirect, Funding: funding, CurrentExposure: currentExposure})
-	posState := a.position.State()
 	decision := a.risk.Evaluate(now, signal, feat, fair, executionDirect, account, posState, a.cfg.App.FlattenOnHardHalt)
-
-	// Consume actual account fills before planning a new order. This drives closed
-	// P&L, consecutive-loss controls, and paper performance attribution.
-	if a.exchange.PaperVerified() {
-		fills, fillErr := a.exchange.Fills(ctx, a.performance.Since())
-		if fillErr != nil {
-			a.log.Warn("account fills unavailable", "error", fillErr)
-		} else if len(fills) > 0 {
-			ctxPerf := performance.Context{Regime: reg, Features: feat, Signal: signal, Fair: fair, InitialStop: posState.StopPrice}
-			closed, lerr := a.performance.Process(now, fills, account, ctxPerf, executionDirect.Mid(), a.lastExitReason)
-			if lerr != nil {
-				a.log.Warn("performance ledger", "error", lerr)
-			}
-			for _, tr := range closed {
-				if err := a.risk.RecordClosedTrade(tr.NetPnLUSD); err != nil {
-					a.log.Warn("persist closed-trade risk state", "error", err)
-				}
-				if strings.Contains(strings.ToLower(tr.ExitReason), "stop") {
-					dir := 1.0
-					if tr.Direction == "short" {
-						dir = -1
-					}
-					a.strategy.MarkStopped(dir, tr.ExitTime)
-				}
-				_ = a.journal.Append("trade_closed", tr)
-				a.lastExitReason = ""
-			}
-		}
+	closingOrReversing := math.Abs(decision.Target.QuantityXAUT) <= a.cfg.Execution.TargetToleranceXAUT || decision.Target.QuantityXAUT*account.NetXAUT() < 0
+	if !signal.NoNewEntries && decision.Allowed && !decision.Halt && math.Abs(account.NetXAUT()) > a.cfg.Execution.TargetToleranceXAUT && closingOrReversing {
+		a.lastExitReason = signal.Reason
 	}
 
 	plan := domain.ExecutionPlan{Reason: decision.Reason}

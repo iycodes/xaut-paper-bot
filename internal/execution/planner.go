@@ -42,6 +42,16 @@ func (p *Planner) Plan(in Input) domain.ExecutionPlan {
 		ids := ids(stops)
 		return domain.ExecutionPlan{CancelOrderIDs: ids, Reason: "cancel protective stop before reduction/reversal"}
 	}
+	// A partially filled opening order is already a real position. Protect the
+	// confirmed quantity before waiting for the remainder or submitting another
+	// child. An already-correct stop is not an action, so normal planning can
+	// continue while that protection remains live.
+	if shouldProtectDuringBuild(in) {
+		protection := p.protective(in, stops)
+		if protection.Intent != nil || len(protection.CancelOrderIDs) > 0 {
+			return protection
+		}
+	}
 	if len(normal) > 0 {
 		stale := []int64{}
 		for _, o := range normal {
@@ -95,6 +105,19 @@ func (p *Planner) Plan(in Input) domain.ExecutionPlan {
 		}
 	}
 	return p.protective(in, stops)
+}
+
+func shouldProtectDuringBuild(in Input) bool {
+	position := in.Position.QuantityXAUT
+	current := in.Account.NetXAUT()
+	target := in.Target.QuantityXAUT
+	if math.Abs(position) <= 1e-9 || in.Position.StopPrice <= 0 || math.Abs(current) <= 1e-9 {
+		return false
+	}
+	if (target > 0) != (current > 0) {
+		return false
+	}
+	return math.Abs(target)+1e-9 >= math.Abs(current)
 }
 
 func (p *Planner) protective(in Input, stops []domain.OpenOrder) domain.ExecutionPlan {

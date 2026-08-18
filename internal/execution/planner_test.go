@@ -64,3 +64,25 @@ func TestCancelsOpeningOrderWhenTargetNowRequiresReduction(t *testing.T) {
 		t.Fatalf("expected inconsistent buy cancellation: %+v", plan)
 	}
 }
+
+func TestProtectsPartialFillBeforeWaitingForOpeningOrder(t *testing.T) {
+	cfg := config.Default()
+	p := New(cfg.Execution, cfg.Symbols)
+	now := time.Now().UTC()
+	account := domain.AccountSnapshot{SpotXAUT: .5, OpenOrders: []domain.OpenOrder{{ID: 10, GID: cfg.Execution.GroupID, Venue: domain.VenueSpot, RemainingAmount: .5, CreatedAt: now}}}
+	position := domain.PositionState{QuantityXAUT: .5, AverageEntry: 4000, StopPrice: 3980}
+	plan := p.Plan(Input{Now: now, Account: account, Target: domain.Target{QuantityXAUT: 1}, Position: position, Direct: testBook()})
+	if plan.Intent == nil || !plan.Intent.Protective || plan.Intent.GID != cfg.Execution.StopGroupID || plan.Intent.Quantity != .5 {
+		t.Fatalf("partial fill was not protected first: %+v", plan)
+	}
+}
+
+func TestProtectsFilledChildBeforeSubmittingNextChild(t *testing.T) {
+	cfg := config.Default()
+	p := New(cfg.Execution, cfg.Symbols)
+	position := domain.PositionState{QuantityXAUT: .5, AverageEntry: 4000, StopPrice: 3980}
+	plan := p.Plan(Input{Now: time.Now(), Account: domain.AccountSnapshot{SpotXAUT: .5}, Target: domain.Target{QuantityXAUT: 1}, Position: position, Direct: testBook()})
+	if plan.Intent == nil || !plan.Intent.Protective {
+		t.Fatalf("next child was planned before protection: %+v", plan)
+	}
+}

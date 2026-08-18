@@ -20,7 +20,7 @@ The decision chain is deliberately hierarchical:
 
 ### Short economics
 
-A margin short is blocked when funding data is stale/unavailable. The strategy estimates expected funding from recent Bitfinex XAUT funding trades and requires funding to remain below the configured share of gross expected edge. It then subtracts funding, fair-value uncertainty and a short-specific safety buffer before allowing the trade.
+A margin short is blocked when funding data is stale/unavailable. The strategy estimates expected funding from the current Bitfinex XAUT funding-ticker borrow ask (falling back to FRR) and requires funding to remain below the configured share of gross expected edge. It then subtracts funding, fair-value uncertainty and a short-specific safety buffer before allowing the trade.
 
 ### Risk management defaults for the $30,000 research account
 
@@ -41,6 +41,7 @@ Target sizing is validated against the **simulated dollar loss at the active sto
 ### Stops and exits
 
 - An exchange-side `STOP` order is maintained separately from normal working orders.
+- Any partial entry fill is protected before the planner waits for or submits another child entry.
 - The software stop remains as an independent backup watchdog.
 - Stop changes caused by trailing logic trigger protective-order refresh.
 - Mean-reversion/dislocation positions exit when the basis normalizes.
@@ -57,7 +58,7 @@ Target sizing is validated against the **simulated dollar loss at the active sto
 
 ### Live paper analytics
 
-Authenticated paper fills are stored in `data/fills.jsonl`; completed trades are stored in `data/trades.jsonl`. The persistent ledger records fill-based entry/exit VWAP, realized P&L, fees, funding estimate, R multiple, MFE/MAE, entry regime, basis, trend, micro score, combined score and fair-value confidence. Consecutive-loss risk state is driven by completed fill-based trades rather than a market-price approximation.
+Authenticated paper fills are stored in `data/fills.jsonl`; completed trades are stored in `data/trades.jsonl`. The persistent ledger records fill-weighted entry/exit VWAP, realized P&L, converted fees, time-accrued short-funding estimate, R multiple, continuously sampled MFE/MAE, entry regime, basis, trend, micro score, combined score and fair-value confidence. Consecutive-loss risk state is driven by completed fill-based trades rather than a market-price approximation.
 
 The rolling basis window is stored in `data/basis_state.json`. On a cold start,
 the bot restores recent samples and uses aligned closed 1-minute candles from
@@ -65,10 +66,10 @@ both synthetic routes as a fallback. Candle-derived basis is initialization
 only; order approval always requires fresh executable WebSocket books.
 
 Public trade history is cached independently of the 5-second engine tick.
-Market trades refresh every 10 seconds and XAUT funding every minute, producing
-about seven requests per minute to Bitfinex's shared trade-history endpoint.
-Rate-limit responses pause both streams and retry with exponential backoff up
-to five minutes. Configure the cadence with `market.public_trades_refresh` and
+Market trades refresh every 10 seconds and the current XAUT funding ticker every
+minute. Only the market trades use Bitfinex's restrictive trade-history endpoint;
+rate-limit responses pause both streams and retry with exponential backoff up to
+five minutes. Configure the cadence with `market.public_trades_refresh` and
 `funding.refresh_interval`.
 
 ## Bitfinex markets
@@ -104,7 +105,7 @@ curl http://127.0.0.1:8082/healthz
 curl http://127.0.0.1:8082/readyz
 ```
 
-Create the configured `HALT` file to block new trading and invoke configured hard-halt behavior.
+With the default relative setting (`"halt_file": "HALT"`), create `data/HALT` to block new trading and invoke configured hard-halt behavior. Relative halt paths resolve inside `app.data_directory`; absolute paths are used unchanged.
 
 ## Diagnostic report
 

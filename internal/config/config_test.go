@@ -1,6 +1,11 @@
 package config
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestDefaultValid(t *testing.T) {
 	cfg := Default()
@@ -58,5 +63,36 @@ func TestRejectsNonPositiveRESTRefreshIntervals(t *testing.T) {
 	cfg.Funding.RefreshInterval.Duration = 0
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected funding refresh validation error")
+	}
+}
+
+func TestRejectsBasisInstabilityRatioAtOrBelowBaseline(t *testing.T) {
+	cfg := Default()
+	cfg.Market.TransitionBasisInstability = 1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected basis instability ratio validation error")
+	}
+}
+
+func TestLoadResolvesRelativeHaltFileInsideDataDirectory(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Default()
+	cfg.App.DataDirectory = filepath.Join(dir, "state")
+	cfg.Risk.HaltFile = "HALT"
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(cfg.App.DataDirectory, "HALT")
+	if loaded.Risk.HaltFile != want {
+		t.Fatalf("halt file = %q, want %q", loaded.Risk.HaltFile, want)
 	}
 }
